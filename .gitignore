@@ -1,0 +1,11 @@
+# Compiled files
+*.o
+*.skel.h
+raw_tp_example
+manual_loader
+
+# Kernel headers
+vmlinux.h
+
+# IDE files
+.vscode/
