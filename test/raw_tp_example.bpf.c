@@ -3,6 +3,15 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u32);
+} my_pid_map SEC(".maps");
+
+
 struct event{
     __u32 pid;
     __u64 syscall_id;
@@ -16,6 +25,21 @@ struct {
 
 SEC("raw_tracepoint/sys_enter")
 int handle_sys_enter(struct bpf_raw_tracepoint_args *ctx){
+    __u32 zero = 0;
+    __u32 *my_pid;
+
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;     // 상위 32비트가 PID임 -> 현재 프로세스 PID 가져오기 
+
+    if(pid == 0){ // PID 0은 커널 스케쥴러이므로 무시
+        return 0;
+    }
+    
+    my_pid = bpf_map_lookup_elem(&my_pid_map, &zero); // 로더 자신의 PID 가져오기
+
+    if(my_pid && *my_pid == pid){
+        return 0;
+    }
+
     struct event *e;
 
     e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
