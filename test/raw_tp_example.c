@@ -108,6 +108,8 @@ int main(int argc, char **argv){
 				long print_limit = (count < 10) ? count : 10;
 				for (long i = 0; i < print_limit; i++) {
 					struct event *evt = &event_buffer[i];
+					if(evt->pid == 0) // PID 0은 커널 스케쥴러이므로 무시
+						continue;
 					printf("  -> PID: %-6u COMM: %-16s SYSCALL_ID: %llu\n",
 						evt->pid, evt->comm, evt->syscall_id);
 				}

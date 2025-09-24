@@ -31,9 +31,10 @@ int handle_sys_enter(struct bpf_raw_tracepoint_args *ctx){
     __u32 pid = bpf_get_current_pid_tgid() >> 32;     // 상위 32비트가 PID임 -> 현재 프로세스 PID 가져오기 
 
     if(pid == 0){ // PID 0은 커널 스케쥴러이므로 무시
+        bpf_printk("PID 0 (swapper) ignored");
         return 0;
     }
-    
+
     my_pid = bpf_map_lookup_elem(&my_pid_map, &zero); // 로더 자신의 PID 가져오기
 
     if(my_pid && *my_pid == pid){
