@@ -18,35 +18,16 @@ struct event{
 };
 
 
-#define EVENT_BUFFER_SIZE 8192
+#define EVENT_BUFFER_SIZE 262144 // 2^18, 약 8MB
 struct event event_buffer[EVENT_BUFFER_SIZE];
-static atomic_long event_index = 0;
+static atomic_long event_count = 0; // 
 
 static volatile bool exiting = false;
 
-static void sig_handler(int sig){
- 	exiting = true;
-}
-
-static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args){
-	return 0;
-	// return vfprintf(stderr, format, args);
-}
-
-int handle_event(void *ctx, void *data, size_t data_sz){
-	if(atomic_load(&event_index) >= EVENT_BUFFER_SIZE){ //buffer가 꽉 찼으면 종료
-		return 0;
-	}
-	// const struct event *e = data;
-	// printf("PID : %-6u COMM : %-16s SYSCALL ID : %llu\n", e->pid, e->comm, e->syscall_id);
-	long index = atomic_fetch_add(&event_index, 1);
-	
-	if(index < EVENT_BUFFER_SIZE){
-		memcpy(&event_buffer[event_index], data, sizeof(struct event));
-	}
-
-	return 0;
-}
+static void sig_handler(int sig);
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args);
+void cleanup();
+int handle_event(void *ctx, void *data, size_t data_sz);
 
 int main(int argc, char **argv){
 	struct raw_tp_example_bpf *skel;
@@ -54,7 +35,7 @@ int main(int argc, char **argv){
 	int err;
 	time_t last_print_time;
 
-	libbpf_set_print(libbpf_print_fn);
+	libbpf_set_print(libbpf_print_fn); // 원인 
 
 	skel = raw_tp_example_bpf__open_and_load();
 	if (!skel) {
@@ -65,7 +46,8 @@ int main(int argc, char **argv){
 	err = raw_tp_example_bpf__attach(skel);
 	if (err) {
 		fprintf(stderr, "Failed to attach BPF skeleton\n");
-		goto cleanup;
+		cleanup(rb, skel);
+		return -err;
 	}
 	
 	__u32 zero = 0;
@@ -74,14 +56,16 @@ int main(int argc, char **argv){
 	err = bpf_map__update_elem(skel->maps.my_pid_map, &zero, sizeof(zero), &my_pid, sizeof(my_pid), BPF_ANY);
 	if(err < 0){
 		fprintf(stderr, "Failed to update my_pid_map : %d, %s\n", err, strerror(-err));
-		goto cleanup;
+		cleanup(rb, skel);
+		return -err;
 	}
 
 	rb = ring_buffer__new(bpf_map__fd(skel->maps.events), handle_event, NULL, NULL);
 	if(!rb){
 		err = -1;
 		fprintf(stderr, "Failed to create ring buffer\n");
-		goto cleanup;
+		cleanup(rb, skel);
+		return -err;
 	}
 
 	signal(SIGINT, sig_handler);
@@ -100,7 +84,7 @@ int main(int argc, char **argv){
 
 		time_t now = time(NULL);
 		if(now - last_print_time >= 1){ // 1초에 한번씩 출력
-			long count = atomic_exchange(&event_index, 0);
+			long count = atomic_exchange(&event_count, 0);
 
 			if(count > 0){
 				printf("----- Events in Last period (~1s) : %ld ------\n", count);
@@ -125,7 +109,7 @@ int main(int argc, char **argv){
 			last_print_time = now;
 		}
 
-		// long count = atomic_exchange(&event_index, 0);
+		// long count = atomic_exchange(&event_count, 0);
 
 		// if(count > 0){
 		// 	printf("----- Events in Last period (~1s) : %ld ------\n", count);
@@ -144,9 +128,42 @@ int main(int argc, char **argv){
 	// 	sleep(1);
 	// }
 
-cleanup:
+// cleanup: // goto 수정
+// 	printf("\nExiting...\n");
+// 	ring_buffer__free(rb);
+// 	raw_tp_example_bpf__destroy(skel);
+// 	return -err;
+// }
+}
+
+static void sig_handler(int sig){
+	fprintf(stderr, "Error 2");
+ 	exiting = true;
+}
+
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args){
+	fprintf(stderr,"Error1\n");
+	return 0;
+	// return vfprintf(stderr, format, args);
+}
+
+int handle_event(void *ctx, void *data, size_t data_sz){
+	if(atomic_load(&event_count) >= EVENT_BUFFER_SIZE){ //buffer가 꽉 찼으면 종료
+		return 0;
+	}
+	// const struct event *e = data;
+	// printf("PID : %-6u COMM : %-16s SYSCALL ID : %llu\n", e->pid, e->comm, e->syscall_id);
+	long index = atomic_fetch_add(&event_count, 1);
+	
+	if(index < EVENT_BUFFER_SIZE){
+		memcpy(&event_buffer[event_count], data, sizeof(struct event));
+	}
+
+	return 0;
+}
+
+void cleanup(struct ring_buffer *rb, struct raw_tp_example_bpf *skel){
 	printf("\nExiting...\n");
 	ring_buffer__free(rb);
 	raw_tp_example_bpf__destroy(skel);
-	return -err;
 }
