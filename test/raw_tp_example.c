@@ -18,9 +18,9 @@ struct event{
 };
 
 
-#define EVENT_BUFFER_SIZE 262144 // 2^18, 약 8MB
+#define EVENT_BUFFER_SIZE 262144 // 2^18, 약 8MB "기존 : 8192"
 struct event event_buffer[EVENT_BUFFER_SIZE];
-static atomic_long event_count = 0; // 
+static atomic_long event_count = 0;
 
 static volatile bool exiting = false;
 
@@ -35,7 +35,7 @@ int main(int argc, char **argv){
 	int err;
 	time_t last_print_time;
 
-	libbpf_set_print(libbpf_print_fn); // 원인 
+	libbpf_set_print(libbpf_print_fn);
 
 	skel = raw_tp_example_bpf__open_and_load();
 	if (!skel) {
@@ -121,6 +121,8 @@ int main(int argc, char **argv){
 		// }
 	}
 
+	printf("\n\nExiting : %d\n", exiting);
+
 	// printf("Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` to see output.\n");
 	// printf("Press Ctrl+C to exit.\n");
 
@@ -137,18 +139,25 @@ int main(int argc, char **argv){
 }
 
 static void sig_handler(int sig){
-	fprintf(stderr, "Error 2");
  	exiting = true;
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args){
-	fprintf(stderr,"Error1\n");
-	return 0;
-	// return vfprintf(stderr, format, args);
+	if(level == LIBBPF_WARN){
+		fprintf(stderr, "LIBBPF_WARN : ");
+	}
+
+	return vfprintf(stderr, format, args);
 }
 
 int handle_event(void *ctx, void *data, size_t data_sz){
-	if(atomic_load(&event_count) >= EVENT_BUFFER_SIZE){ //buffer가 꽉 찼으면 종료
+	if(data_sz != sizeof(struct event)){ // 커널이 보낸 data의 size 점검
+		fprintf(stderr, "!!!KERNEL-USERSPACE SIZE MISMATCH!!!\n");
+		fprintf(stderr, "Kernel sented size : %zu, expected size : %zu\n", data_sz, sizeof(struct event));
+		return 0;
+	}
+	if(atomic_load(&event_count) >= EVENT_BUFFER_SIZE){     //buffer가 꽉 찼으면 종료
+		fprintf(stderr, "Buffer is fulled. Dropping event.\n");
 		return 0;
 	}
 	// const struct event *e = data;

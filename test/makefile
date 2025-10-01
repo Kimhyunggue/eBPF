@@ -60,7 +60,8 @@ run: all
 	sudo ./$(USER_EXEC)
 
 $(USER_EXEC): $(USER_SRC) $(SKEL_H)
-	$(CC) $(USER_SRC) -lbpf -lelf -o $(USER_EXEC)
+	$(CC) -g $(USER_SRC) -lbpf -lelf -o $(USER_EXEC)
+# -g 추가
 
 $(SKEL_H): $(EBPF_OBJ)
 	sudo $(BPFTOOL) gen skeleton $< > $@
