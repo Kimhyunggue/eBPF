@@ -34,6 +34,7 @@ int main(int argc, char **argv){
 	struct ring_buffer *rb = NULL;
 	int err;
 	time_t last_print_time;
+	FILE *log_file = NULL;
 
 	libbpf_set_print(libbpf_print_fn);
 
@@ -71,6 +72,13 @@ int main(int argc, char **argv){
 	signal(SIGINT, sig_handler);
 	signal(SIGTERM, sig_handler);
 
+	log_file = fopen("sys_enter_eBPF.log", "a");
+	if(!log_file){
+		fprintf(stderr, "Failed to open log file : %s\n", strerror(errno));
+		cleanup(rb, skel);
+		return 1;
+	}
+
 	printf("Successfully Started!.....Press Ctrl+C to exit\n");
 	last_print_time = time(NULL);
 
@@ -87,18 +95,15 @@ int main(int argc, char **argv){
 			long count = atomic_exchange(&event_count, 0);
 
 			if(count > 0){
-				printf("----- Events in Last period (~1s) : %ld ------\n", count);
+				fprintf(log_file, "Logging Events in Last period (~1s) : %ld\n", count);
 
 				long print_limit = (count < 10) ? count : 10;
 				for (long i = 0; i < print_limit; i++) {
 					struct event *evt = &event_buffer[i];
 					if(evt->pid == 0) // PID 0은 커널 스케쥴러이므로 무시
 						continue;
-					printf("  -> PID: %-6u COMM: %-16s SYSCALL_ID: %llu\n",
+					fprintf(log_file, "{\"PID\": %u, \"COMM\": \"%s\", \"SYSCALL_ID\": %llu}\n",
 						evt->pid, evt->comm, evt->syscall_id);
-				}
-				if (count > 10) {
-					printf("  ... and %ld more events.\n", count - 10);
 				}
 			
 				// for(long i = 0; i < count; i++){
@@ -121,7 +126,10 @@ int main(int argc, char **argv){
 		// }
 	}
 
-	printf("\n\nExiting : %d\n", exiting);
+	if(log_file)
+		fclose(log_file);
+
+	return err < 0 ? -err : err;
 
 	// printf("Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` to see output.\n");
 	// printf("Press Ctrl+C to exit.\n");
@@ -165,7 +173,7 @@ int handle_event(void *ctx, void *data, size_t data_sz){
 	long index = atomic_fetch_add(&event_count, 1);
 	
 	if(index < EVENT_BUFFER_SIZE){
-		memcpy(&event_buffer[event_count], data, sizeof(struct event));
+		memcpy(&event_buffer[index], data, sizeof(struct event));
 	}
 
 	return 0;

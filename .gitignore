@@ -3,9 +3,14 @@
 *.skel.h
 raw_tp_example
 manual_loader
+*.log
 
 # Kernel headers
 vmlinux.h
 
 # IDE files
 .vscode/
+
+System-Call-Sequence-Detector-main 복사본
+TPC_benchmark
+*.zip
