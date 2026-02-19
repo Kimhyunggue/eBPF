@@ -4,6 +4,7 @@
 raw_tp_example
 manual_loader
 *.log
+sys_enter_and_out
 
 # Kernel headers
 vmlinux.h

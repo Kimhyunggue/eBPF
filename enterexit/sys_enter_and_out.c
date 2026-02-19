@@ -79,7 +79,8 @@ int main(int argc, char **argv){
     signal(SIGTERM, sig_handler);
 
     // 6. 로그 파일 열기
-    log_file = fopen("sys_enter_and_out.log", "a");
+    // log_file = fopen("sys_enter_and_out.log", "a");
+    log_file = fopen("/dev/null", "a"); // 쓰는 값들을 버림 -> 저장 용량을 위해
     if(!log_file){
         fprintf(stderr, "Failed to open log file : %s\n", strerror(errno));
         cleanup(rb, skel);
