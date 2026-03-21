@@ -12,6 +12,9 @@ vmlinux.h
 # IDE files
 .vscode/
 
+# shell scripts
+*.sh
+
 System-Call-Sequence-Detector-main 복사본
 TPC_benchmark
 *.zip
