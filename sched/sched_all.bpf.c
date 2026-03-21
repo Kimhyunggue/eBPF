@@ -3,6 +3,7 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
+// 자기 자신(tracer) PID 필터링용 맵
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
@@ -10,21 +11,18 @@ struct {
     __type(value, __u32);
 } my_pid_map SEC(".maps");
 
-struct event {
-    __u32 pid;
-    __u32 event_type; // 1~30번까지 훅 종류 구분
-    char comm[16];
-};
-
+// 💡 링버퍼를 지우고, 커널 내부 고속 카운터 맵을 추가!
 struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24); // 16MB (이벤트 폭주로 금방 꽉 찰 겁니다)
-} events SEC(".maps");
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u64);
+} sched_counter SEC(".maps");
 
 // =================================================================
-// 💡 일반 스케줄러(sched) 훅 전용 매크로
+// 💡 일반 스케줄러(sched) 훅 전용 매크로 (카운팅용으로 최적화)
 // =================================================================
-#define DEFINE_SCHED_HOOK(hook_name, type_id) \
+#define DEFINE_SCHED_HOOK(hook_name) \
 SEC("tracepoint/sched/" #hook_name) \
 int handle_##hook_name(void *ctx) { \
     __u32 zero = 0; \
@@ -32,67 +30,40 @@ int handle_##hook_name(void *ctx) { \
     if (pid == 0) return 0; \
     __u32 *my_pid = bpf_map_lookup_elem(&my_pid_map, &zero); \
     if (my_pid && *my_pid == pid) return 0; \
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0); \
-    if (!e) return 0; \
-    e->pid = pid; \
-    e->event_type = type_id; \
-    bpf_get_current_comm(&e->comm, sizeof(e->comm)); \
-    bpf_ringbuf_submit(e, 0); \
+    __u64 *val = bpf_map_lookup_elem(&sched_counter, &zero); \
+    if (val) { __sync_fetch_and_add(val, 1); } \
     return 0; \
 }
 
 // =================================================================
-// 💡 확장 스케줄러(sched_ext) 훅 전용 매크로
+// 29개의 트레이스포인트 일괄 부착
 // =================================================================
-#define DEFINE_SCHED_EXT_HOOK(hook_name, type_id) \
-SEC("tracepoint/sched_ext/" #hook_name) \
-int handle_ext_##hook_name(void *ctx) { \
-    __u32 zero = 0; \
-    __u32 pid = bpf_get_current_pid_tgid() >> 32; \
-    if (pid == 0) return 0; \
-    __u32 *my_pid = bpf_map_lookup_elem(&my_pid_map, &zero); \
-    if (my_pid && *my_pid == pid) return 0; \
-    struct event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0); \
-    if (!e) return 0; \
-    e->pid = pid; \
-    e->event_type = type_id; \
-    bpf_get_current_comm(&e->comm, sizeof(e->comm)); \
-    bpf_ringbuf_submit(e, 0); \
-    return 0; \
-}
-
-// =================================================================
-// 30개의 트레이스포인트 일괄 부착
-// =================================================================
-DEFINE_SCHED_HOOK(sched_kthread_stop, 1)
-DEFINE_SCHED_HOOK(sched_kthread_stop_ret, 2)
-DEFINE_SCHED_HOOK(sched_kthread_work_execute_end, 3)
-DEFINE_SCHED_HOOK(sched_kthread_work_execute_start, 4)
-DEFINE_SCHED_HOOK(sched_kthread_work_queue_work, 5)
-DEFINE_SCHED_HOOK(sched_migrate_task, 6)
-DEFINE_SCHED_HOOK(sched_move_numa, 7)
-DEFINE_SCHED_HOOK(sched_pi_setprio, 8)
-DEFINE_SCHED_HOOK(sched_prepare_exec, 9)
-DEFINE_SCHED_HOOK(sched_process_exec, 10)
-DEFINE_SCHED_HOOK(sched_process_exit, 11)
-DEFINE_SCHED_HOOK(sched_process_fork, 12)
-DEFINE_SCHED_HOOK(sched_process_free, 13)
-DEFINE_SCHED_HOOK(sched_process_hang, 14)
-DEFINE_SCHED_HOOK(sched_process_wait, 15)
-DEFINE_SCHED_HOOK(sched_skip_vma_numa, 16)
-DEFINE_SCHED_HOOK(sched_stat_blocked, 17)
-DEFINE_SCHED_HOOK(sched_stat_iowait, 18)
-DEFINE_SCHED_HOOK(sched_stat_runtime, 19)
-DEFINE_SCHED_HOOK(sched_stat_sleep, 20)
-DEFINE_SCHED_HOOK(sched_stat_wait, 21)
-DEFINE_SCHED_HOOK(sched_stick_numa, 22)
-DEFINE_SCHED_HOOK(sched_swap_numa, 23)
-DEFINE_SCHED_HOOK(sched_switch, 24)
-DEFINE_SCHED_HOOK(sched_wait_task, 25)
-DEFINE_SCHED_HOOK(sched_wake_idle_without_ipi, 26)
-DEFINE_SCHED_HOOK(sched_wakeup, 27)
-DEFINE_SCHED_HOOK(sched_wakeup_new, 28)
-DEFINE_SCHED_HOOK(sched_waking, 29)
-
-// sched_ext 카테고리
-DEFINE_SCHED_EXT_HOOK(sched_ext_dump, 30)
+DEFINE_SCHED_HOOK(sched_kthread_stop)
+DEFINE_SCHED_HOOK(sched_kthread_stop_ret)
+DEFINE_SCHED_HOOK(sched_kthread_work_execute_end)
+DEFINE_SCHED_HOOK(sched_kthread_work_execute_start)
+DEFINE_SCHED_HOOK(sched_kthread_work_queue_work)
+DEFINE_SCHED_HOOK(sched_migrate_task)
+DEFINE_SCHED_HOOK(sched_move_numa)
+DEFINE_SCHED_HOOK(sched_pi_setprio)
+DEFINE_SCHED_HOOK(sched_prepare_exec)
+DEFINE_SCHED_HOOK(sched_process_exec)
+DEFINE_SCHED_HOOK(sched_process_exit)
+DEFINE_SCHED_HOOK(sched_process_fork)
+DEFINE_SCHED_HOOK(sched_process_free)
+DEFINE_SCHED_HOOK(sched_process_hang)
+DEFINE_SCHED_HOOK(sched_process_wait)
+DEFINE_SCHED_HOOK(sched_skip_vma_numa)
+DEFINE_SCHED_HOOK(sched_stat_blocked)
+DEFINE_SCHED_HOOK(sched_stat_iowait)
+DEFINE_SCHED_HOOK(sched_stat_runtime)
+DEFINE_SCHED_HOOK(sched_stat_sleep)
+DEFINE_SCHED_HOOK(sched_stat_wait)
+DEFINE_SCHED_HOOK(sched_stick_numa)
+DEFINE_SCHED_HOOK(sched_swap_numa)
+DEFINE_SCHED_HOOK(sched_switch)
+DEFINE_SCHED_HOOK(sched_wait_task)
+DEFINE_SCHED_HOOK(sched_wake_idle_without_ipi)
+DEFINE_SCHED_HOOK(sched_wakeup)
+DEFINE_SCHED_HOOK(sched_wakeup_new)
+DEFINE_SCHED_HOOK(sched_waking)
