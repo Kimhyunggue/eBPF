@@ -9,6 +9,9 @@ sys_enter_and_out
 # Kernel headers
 vmlinux.h
 
+# shell scripts
+*.sh
+
 # IDE files
 .vscode/
 
